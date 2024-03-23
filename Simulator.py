@@ -3,100 +3,120 @@ import random
 import networkx as nx
 import numpy as np
 
-# Event Class
+class Packet:
+    """Represents a network packet with an arrival time and processing time."""
+    def __init__(self, arrival_time):
+        self.arrival_time = arrival_time
+        self.processing_time = random.uniform(1, 10)  # Simulate processing time
+
 class Event:
-    def __init__(self, event_type, time):
-        self.event_type = event_type  # Type of event: "arrival" or "departure"
-        self.time = time  # Time at which the event occurs
+    """Represents an event in the simulation, such as a packet's arrival or departure."""
+    def __init__(self, event_type, time, packet=None):
+        self.event_type = event_type  # "arrival" or "departure"
+        self.time = time  # When the event occurs
+        self.packet = packet  # The packet associated with the event, if any
 
     def __lt__(self, other):
+        # This ensures that the priority queue can order events based on their time
         return self.time < other.time
 
-# Scheduler Class
 class Scheduler:
+    """Manages the scheduling and processing of events in the simulation."""
     def __init__(self):
-        self.events = []  # Priority queue to store events
+        self.events = []  # A priority queue (heap) of events
 
     def schedule_event(self, event):
-        heapq.heappush(self.events, event)  # Add event to the priority queue
+        # Adds an event to the queue
+        heapq.heappush(self.events, event)
 
     def get_next_event(self):
+        # Retrieves and removes the next event from the queue, if available
         if self.events:
-            return heapq.heappop(self.events)  # Get the next event from the priority queue
-        else:
-            return None
+            return heapq.heappop(self.events)
+        return None
 
     def has_events(self):
-        return len(self.events) > 0  # Check if there are any events in the queue
+        # Checks if there are any events left to process
+        return len(self.events) > 0
 
-# Network Class
 class Network:
+    """Represents the network topology."""
     def __init__(self):
-        self.graph = nx.Graph()  # Initialize empty graph
-        self.links = {}  # Dictionary to store link properties
+        self.graph = nx.Graph()  # Use NetworkX to manage the graph
+        self.links = {}  # Stores properties of links between nodes
 
-    # Generate network topology using the Barabasi-Albert model
     def generate_barabasi_albert_topology(self, n, m):
-        self.graph = nx.barabasi_albert_graph(n, m)  # Generate Barabasi-Albert graph
-        self.initialize_links()  # Initialize links with default properties
+        # Generates a scale-free network using the Barabási-Albert model
+        self.graph = nx.barabasi_albert_graph(n, m)
+        self.initialize_links()
 
-    # Generate network topology using the Waxman model
-    def generate_waxman_topology(self, n, alpha=0.4, beta=0.1):
-        self.graph = nx.waxman_graph(n, alpha=alpha, beta=beta)  # Generate Waxman graph
-        self.initialize_links()  # Initialize links with default properties
-
-    # Initialize links with default properties
     def initialize_links(self):
+        # Initializes the links between nodes with random bandwidth and latency
         for u, v in self.graph.edges():
             self.links[(u, v)] = {"bandwidth": np.random.uniform(10, 100), "latency": np.random.uniform(1, 10)}
-            self.links[(v, u)] = self.links[(u, v)]  # Assuming symmetrical links
+            self.links[(v, u)] = self.links[(u, v)]  # Assume symmetric links
 
-    # Add a new link with specified properties
-    def add_link(self, source, destination, bandwidth, latency):
-        self.links[(source, destination)] = {"bandwidth": bandwidth, "latency": latency}
-        self.links[(destination, source)] = {"bandwidth": bandwidth, "latency": latency}  # Symmetrical link
-
-    # Get properties of a specific link
-    def get_link_properties(self, source, destination):
-        return self.links.get((source, destination), None)
-
-# Simulator Class
 class Simulator:
-    def __init__(self):
-        self.scheduler = Scheduler()  # Initialize scheduler
-        self.network = Network()  # Initialize network
-        self.arrival_count = 0  # Count of packet arrivals
-        self.departure_count = 0  # Count of packet departures
-        self.total_latency = 0  # Total latency for all packets
+    """Main class for running the network simulation."""
+    def __init__(self, max_queue_size=50):
+        self.scheduler = Scheduler()
+        self.network = Network()
+        self.packet_queue = []  # Queue to hold packets waiting for processing
+        self.max_queue_size = max_queue_size  # Maximum packets the queue can hold
+        self.arrival_count = 0  # Total number of packet arrivals
+        self.departure_count = 0  # Total number of packet departures
+        self.dropped_packets = 0  # Total number of dropped packets
+        self.total_latency = 0  # Sum of all packet latencies for average calculation
+        self.latency_list = []  # List of individual packet latencies for jitter calculation
+        self.simulation_end_time = 0  # End time of the last event processed
 
-    # Initialize simulation events
     def initialize_events(self, num_events=100):
+        # Initializes a set number of packet arrival events at random times
         for _ in range(num_events):
-            event_type = random.choice(["arrival", "departure"])  # Randomly select event type
-            time = random.uniform(0, 100)  # Random time
-            self.scheduler.schedule_event(Event(event_type, time))  # Schedule the event
-    def get_nodes_count(self):
-       return len(self.network.graph.nodes)
-    
-    def get_links_count(self):
-        return len(self.network.graph.edges)
-    
-    def get_events_count(self):
-        return sum(1 for _ in self.scheduler.events)
-    
-    # Run the simulation
-    def run_simulation(self):
-        global_simulator_time = 0  # Global simulation time
-        while self.scheduler.has_events():
-            event = self.scheduler.get_next_event()  # Get next event from scheduler
-            global_simulator_time = event.time  # Update global simulation time
-            if event.event_type == "arrival":
-                self.arrival_count += 1  # Increment arrival count
-                print(f"Packet arrived at time {event.time}")  # Print arrival event
-            elif event.event_type == "departure":
-                self.departure_count += 1  # Increment departure count
-                print(f"Packet departed at time {event.time}")  # Print departure event
+            time = random.uniform(0, 100)
+            packet = Packet(arrival_time=time)
+            self.scheduler.schedule_event(Event("arrival", time, packet))
 
-    # Calculate the average latency of packet transmissions
-    def calculate_average_latency(self):
-        return self.total_latency / self.departure_count if self.departure_count > 0 else 0
+    def run_simulation(self):
+        # Processes events in the queue until all are handled
+        while self.scheduler.has_events():
+            event = self.scheduler.get_next_event()
+            if event.event_type == "arrival":
+                self.arrival_count += 1
+                # Check if queue is below capacity before adding packet
+                if len(self.packet_queue) < self.max_queue_size:
+                    self.packet_queue.append(event.packet)
+                    departure_time = event.time + event.packet.processing_time
+                    self.scheduler.schedule_event(Event("departure", departure_time, event.packet))
+                else:
+                    # Packet is dropped if queue is at capacity
+                    self.dropped_packets += 1
+            elif event.event_type == "departure" and self.packet_queue:
+                # Process packet departure
+                self.departure_count += 1
+                packet = self.packet_queue.pop(0)  # Remove packet from queue
+                self.total_latency += event.time - packet.arrival_time  # Calculate latency
+                self.latency_list.append(event.time - packet.arrival_time)  # Store latency for jitter calculation
+                self.simulation_end_time = max(self.simulation_end_time, event.time)  # Update simulation end time
+
+   
+    def calculate_metrics(self):
+        """Calculates performance metrics based on simulation results."""
+        simulation_duration = self.simulation_end_time if self.simulation_end_time > 0 else 1
+        throughput = self.departure_count / simulation_duration  # packets per time unit
+        average_latency = self.total_latency / self.departure_count if self.departure_count > 0 else 0
+        jitter = np.std(self.latency_list) if self.latency_list else 0  # Variation in latency
+        packet_drop_rate = self.dropped_packets / self.arrival_count if self.arrival_count > 0 else 0  # Fraction of packets dropped
+        
+        return throughput, average_latency, jitter, packet_drop_rate
+
+# Example usage
+simulator = Simulator(max_queue_size=50)  # Set maximum queue size
+simulator.network.generate_barabasi_albert_topology(n=10, m=2)  # Generate network topology
+simulator.initialize_events(num_events=1000)  # Initialize a set of packet arrival events
+simulator.run_simulation()  # Run the simulation
+
+# Calculate and print performance metrics
+throughput, average_latency, jitter, packet_drop_rate = simulator.calculate_metrics()
+print(f"Throughput: {throughput:.2f} packets/unit time, Average Latency: {average_latency:.2f} time units, "
+      f"Jitter: {jitter:.2f} time units, Packet Drop Rate: {packet_drop_rate * 100:.2f}%")
